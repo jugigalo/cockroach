@@ -108,13 +108,17 @@ message CreateTableResponse {
 
 // TableRequestHeader is supplied with every structured API request.
 message TableRequestHeader {
+  // The name of the table this request references.
+  optional string name = 1 [(gogoproto.nullable) = false];
+  // The name of the index. Defaults to the primary index when empty.
+  optional string index = 2 [(gogoproto.nullable) = false];
   // Timestamp specifies time at which read or writes should be
   // performed. If the timestamp is set to zero value, its value
   // is initialized to the wall time of the receiving gateway node.
-  optional Timestamp timestamp = 1 [(gogoproto.nullable) = false];
+  optional Timestamp timestamp = 3 [(gogoproto.nullable) = false];
   // CmdID is optionally specified for request idempotence
   // (i.e. replay protection).
-  optional ClientCmdID cmd_id = 2 [(gogoproto.nullable) = false, (gogoproto.customname) = "CmdID"];
+  optional ClientCmdID cmd_id = 4 [(gogoproto.nullable) = false, (gogoproto.customname) = "CmdID"];
   // User is the originating user. Used to lookup priority when
   // scheduling queued operations at target node.
   optional string user = 5 [(gogoproto.nullable) = false];
@@ -127,18 +131,18 @@ message TableRequestHeader {
   // with UserPriority=1. This value is ignored if Txn is
   // specified. If neither this value nor Txn is specified, the value
   // defaults to 1.
-  optional int32 user_priority = 8 [default = 1];
+  optional int32 user_priority = 6 [default = 1];
   // Txn is set non-nil if a transaction is underway. To start a txn,
   // the first request should set this field to non-nil with name and
   // isolation level set as desired. The response will contain the
   // fully-initialized transaction with txn ID, priority, initial
   // timestamp, and maximum timestamp. The transaction returned in a
   // response is feed to the next request.
-  optional Transaction txn = 9;
+  optional Transaction txn = 7;
   // ReadConsistency specifies the consistency for read
   // operations. The default is CONSISTENT. This value is ignored for
   // write operations.
-  optional ReadConsistencyType read_consistency = 10 [(gogoproto.nullable) = false];
+  optional ReadConsistencyType read_consistency = 8 [(gogoproto.nullable) = false];
 }
 
 // TableResponseHeader is returned with every structured API response.
@@ -161,51 +165,41 @@ message TableResponseHeader {
   optional Transaction txn = 3;
 }
 
-// A TableKey represents a key into a table index.
-message TableKey {
-  optional string table_name = 1;
-  // A column key component. Multiple ColumnKeys together form a key.
-  message ColumnKey {
-    optional string column_name = 1;
-    optional bytes key = 2; 
+// A ColumnCollection represents a collection of columns as name:value pairs.
+message ColumnCollection {
+  message ColumnNameValue {
+    // Column name. When a ColumnCollection is a row which is a part
+    // of a collection of rows the name need only be specified in columns
+    // belonging to the first row/ColumnCollection.
+    optional string name = 1;
+    optional MVCCValue value = 2 [(gogoproto.nullable) = false];
   }
-  // The different key components from each column.
-  repeated ColumnKey columns = 2;
-}
-
-// A TableRow represents a set of column values within a table row. 
-// When multiple rows are returned in a response (Scan), only the
-// the first row Cells contain column_names.
-message TableRow {
-  message Cell {
-    optional string column_name = 1;
-    optional Value value = 2;
-  }
-  repeated Cell cells = 1;
+  repeated ColumnNameValue columns = 1;
 }
 
 // A GetTableRowRequest is used to read a table row.
 message GetTableRowRequest {
   optional TableRequestHeader header = 1 [(gogoproto.nullable) = false, (gogoproto.embed) = true];
-  optional TableKey key = 2 [(gogoproto.nullable) = false];
-  // get specified columns from the row.
-  repeated string column_names = 3;
+  optional ColumnCollection key = 2 [(gogoproto.nullable) = false];
+  // Get specified columns from the row.
+  repeated string columns = 3;
 }
 
 // A GetTableRowResponse returns a row.
 // If the key doesn't exist, it returns an empty row.
 message GetTableRowResponse {
   optional TableResponseHeader header = 1 [(gogoproto.nullable) = false, (gogoproto.embed) = true];
-  optional TableRow row = 2 [(gogoproto.nullable) = false];
+  // A deleted column has deleted set.
+  optional ColumnCollection row = 2 [(gogoproto.nullable) = false];
 }
 
 // A PutTableRowRequest inserts/updates a row in the table. To write
 // an empty value in a cell specify an empty Bytes in the Value. To Delete
-// a cell, specify a cell with a column_name with no value.
+// a column specify the deleted bit.
 message PutTableRowRequest {
   optional TableRequestHeader header = 1 [(gogoproto.nullable) = false, (gogoproto.embed) = true];
-  optional TableKey key = 2 [(gogoproto.nullable) = false];
-  optional TableRow row = 3 [(gogoproto.nullable) = false];
+  // The columns forming the index key must be part of the ColumnCollection.
+  optional ColumnCollection row = 3 [(gogoproto.nullable) = false];
 }
 
 // A PutTableRowResponse is the response.
@@ -215,29 +209,43 @@ message PutTableRowResponse {
 
 // A ConditionalPutTableRowRequest.
 //
-// - Returns true and sets row if exp_row equals existing row.
-// - If key doesn't exist and exp_row is empty, sets row.
-// - If key exists and exp_row is empty, sets row.
-// - Otherwise, returns error and the actual value of the row in the response.
+// Puts row if exp_row equals an existing row in the DB. Both exp_row and row
+// must contain the columns forming the index key, and those constructed keys
+// must be equal. Returns error and the actual value of the row in the response
+// if exp_row doesn't match the full row in the DB.
 message ConditionalPutTableRowRequest {
   optional TableRequestHeader header = 1 [(gogoproto.nullable) = false, (gogoproto.embed) = true];
-  optional TableKey key = 2 [(gogoproto.nullable) = false, (gogoproto.embed) = true];
-  // The values to put.
-  optional TableRow row = 3 [(gogoproto.nullable) = false];
-  optional TableRow exp_row = 4[(gogoproto.nullable) = false];
+  optional ColumnCollection exp_row = 3 [(gogoproto.nullable) = false];
+  optional ColumnCollection row = 4[(gogoproto.nullable) = false];
 }
 
-// A ConditionalPutTableRowResponse is the return value from the
-// ConditionalPut request.
+// A ConditionalPutTableRowResponse. The row returned is the actual row in
+// the DB that doesn't full match exp_row in the request. Only the columns
+// forming the index key match up with those in exp_row.
 message ConditionalPutTableRowResponse {
   optional TableResponseHeader header = 1 [(gogoproto.nullable) = false, (gogoproto.embed) = true];
-  optional TableRow row = 2[(gogoproto.nullable) = false];
+  optional ColumnCollection row = 2[(gogoproto.nullable) = false];
 }
 
-// A DeleteTableRowRequest deletes the entire row.
+// An IncrementTableRequest increments the value of the columns in row.
+// row can only contain the columns forming the index key and columns
+// of type integer. Incrementing by 0 is not a noop, and create a zero value.
+message IncrementTableRequest {
+  optional TableRequestHeader header = 1 [(gogoproto.nullable) = false, (gogoproto.embed) = true];
+  optional ColumnCollection row = 2 [(gogoproto.nullable) = false];
+}
+
+// An IncrementTableResponse returns the row with the new column values.
+message IncrementTableResponse {
+  optional TableResponseHeader header = 1 [(gogoproto.nullable) = false, (gogoproto.embed) = true];
+  optional ColumnCollection row = 2 [(gogoproto.nullable) = false];
+}
+
+// A DeleteTableRowRequest deletes the entire row. key contains the columns
+// forming the index key.
 message DeleteTableRowRequest {
   optional TableRequestHeader header = 1 [(gogoproto.nullable) = false, (gogoproto.embed) = true];
-  optional TableKey key = 2 [(gogoproto.nullable) = false];
+  optional ColumnCollection key = 2 [(gogoproto.nullable) = false];
 }
 
 // A DeleteTableRowResponse.
@@ -245,18 +253,18 @@ message DeleteTableRowResponse {
   optional TableResponseHeader header = 1 [(gogoproto.nullable) = false, (gogoproto.embed) = true];
 }
 
-// A DeleteTableRowRangeRequest deletes the specified rows.
+// A DeleteTableRowRangeRequest deletes the specified rows. Both key and end_key
+// must only contain the columns forming the index key.
 message DeleteTableRowRangeRequest {
   optional TableRequestHeader header = 1 [(gogoproto.nullable) = false, (gogoproto.embed) = true];
   // Delete *all* entries between Key (inclusive) and EndKey
   // (exclusive). Must be > 0
-  optional string index = 2 [(gogoproto.nullable) = false];
-  optional TableKey key = 3 [(gogoproto.nullable) = false];
-  optional TableKey end_key = 4 [(gogoproto.nullable) = false];
-  optional int64 max_entries_to_delete = 5 [(gogoproto.nullable) = false];
+  optional ColumnCollection key = 2 [(gogoproto.nullable) = false];
+  optional ColumnCollection end_key = 3 [(gogoproto.nullable) = false];
+  optional int64 max_entries_to_delete = 4 [(gogoproto.nullable) = false];
 }
 
-// A DeleteTableRowRangeResponse is the response.
+// A DeleteTableRowRangeResponse.
 message DeleteTableRowRangeResponse {
   optional TableResponseHeader header = 1 [(gogoproto.nullable) = false, (gogoproto.embed) = true];
   // Number of entries deleted.
@@ -267,20 +275,20 @@ message DeleteTableRowRangeResponse {
 // and the maximum number of results.
 message ScanTableRequest {
   optional TableRequestHeader header = 1 [(gogoproto.nullable) = false, (gogoproto.embed) = true];
-  // Must be > 0.
-  optional string index = 2 [(gogoproto.nullable) = false];
-  optional TableKey key = 3 [(gogoproto.nullable) = false];
-  optional TableKey end_key = 4 [(gogoproto.nullable) = false];
+  // Both key and end_key must only contain the columns forming the index key.
+  optional ColumnCollection key = 3 [(gogoproto.nullable) = false];
+  optional ColumnCollection end_key = 4 [(gogoproto.nullable) = false];
   optional int64 max_results = 5 [(gogoproto.nullable) = false];
-  // get specified columns from the rows.
-  repeated string column_names = 6;
+  // get specified columns from the scaned rows.
+  repeated string columns = 6;
 }
 
 // A ScanTableResponse is the response.
 message ScanTableResponse {
   optional TableResponseHeader header = 1 [(gogoproto.nullable) = false, (gogoproto.embed) = true];
-  // Empty in case of error.
-  repeated TableRow rows = 2;
+  // Empty in case of error. Only the first row need contain the
+  // the names of the columns.
+  repeated ColumnCollection rows = 2;
 }
 
 // A BatchTableRequest contains one or more requests to be executed in
