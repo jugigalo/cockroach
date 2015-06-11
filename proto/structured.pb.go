@@ -463,9 +463,7 @@ func (m *ColumnCollection) GetColumns() []*ColumnCollection_ColumnNameValue {
 }
 
 type ColumnCollection_ColumnNameValue struct {
-	// Column name. When a ColumnCollection is a row which is a part
-	// of a collection of rows the name need only be specified in columns
-	// belonging to the first row/ColumnCollection.
+	// Column name.
 	Name             *string   `protobuf:"bytes,1,opt,name=name" json:"name,omitempty"`
 	Value            MVCCValue `protobuf:"bytes,2,opt,name=value" json:"value"`
 	XXX_unrecognized []byte    `json:"-"`
@@ -487,6 +485,23 @@ func (m *ColumnCollection_ColumnNameValue) GetValue() MVCCValue {
 		return m.Value
 	}
 	return MVCCValue{}
+}
+
+// A ValueCollection is a collection of MVCC values.
+type ValueCollection struct {
+	Values           []*MVCCValue `protobuf:"bytes,1,rep,name=values" json:"values,omitempty"`
+	XXX_unrecognized []byte       `json:"-"`
+}
+
+func (m *ValueCollection) Reset()         { *m = ValueCollection{} }
+func (m *ValueCollection) String() string { return proto1.CompactTextString(m) }
+func (*ValueCollection) ProtoMessage()    {}
+
+func (m *ValueCollection) GetValues() []*MVCCValue {
+	if m != nil {
+		return m.Values
+	}
+	return nil
 }
 
 // A GetTableRowRequest is used to read a table row.
@@ -521,19 +536,19 @@ func (m *GetTableRowRequest) GetColumns() []string {
 type GetTableRowResponse struct {
 	TableResponseHeader `protobuf:"bytes,1,opt,name=header,embedded=header" json:"header"`
 	// A deleted column has deleted set.
-	Row              ColumnCollection `protobuf:"bytes,2,opt,name=row" json:"row"`
-	XXX_unrecognized []byte           `json:"-"`
+	Row              ValueCollection `protobuf:"bytes,2,opt,name=row" json:"row"`
+	XXX_unrecognized []byte          `json:"-"`
 }
 
 func (m *GetTableRowResponse) Reset()         { *m = GetTableRowResponse{} }
 func (m *GetTableRowResponse) String() string { return proto1.CompactTextString(m) }
 func (*GetTableRowResponse) ProtoMessage()    {}
 
-func (m *GetTableRowResponse) GetRow() ColumnCollection {
+func (m *GetTableRowResponse) GetRow() ValueCollection {
 	if m != nil {
 		return m.Row
 	}
-	return ColumnCollection{}
+	return ValueCollection{}
 }
 
 // A PutTableRowRequest inserts/updates a row in the table. To write
@@ -603,19 +618,19 @@ func (m *ConditionalPutTableRowRequest) GetRow() ColumnCollection {
 // forming the index key match up with those in exp_row.
 type ConditionalPutTableRowResponse struct {
 	TableResponseHeader `protobuf:"bytes,1,opt,name=header,embedded=header" json:"header"`
-	Row                 ColumnCollection `protobuf:"bytes,2,opt,name=row" json:"row"`
-	XXX_unrecognized    []byte           `json:"-"`
+	Row                 ValueCollection `protobuf:"bytes,2,opt,name=row" json:"row"`
+	XXX_unrecognized    []byte          `json:"-"`
 }
 
 func (m *ConditionalPutTableRowResponse) Reset()         { *m = ConditionalPutTableRowResponse{} }
 func (m *ConditionalPutTableRowResponse) String() string { return proto1.CompactTextString(m) }
 func (*ConditionalPutTableRowResponse) ProtoMessage()    {}
 
-func (m *ConditionalPutTableRowResponse) GetRow() ColumnCollection {
+func (m *ConditionalPutTableRowResponse) GetRow() ValueCollection {
 	if m != nil {
 		return m.Row
 	}
-	return ColumnCollection{}
+	return ValueCollection{}
 }
 
 // An IncrementTableRequest increments the value of the columns in row.
@@ -641,19 +656,19 @@ func (m *IncrementTableRequest) GetRow() ColumnCollection {
 // An IncrementTableResponse returns the row with the new column values.
 type IncrementTableResponse struct {
 	TableResponseHeader `protobuf:"bytes,1,opt,name=header,embedded=header" json:"header"`
-	Row                 ColumnCollection `protobuf:"bytes,2,opt,name=row" json:"row"`
-	XXX_unrecognized    []byte           `json:"-"`
+	Row                 ValueCollection `protobuf:"bytes,2,opt,name=row" json:"row"`
+	XXX_unrecognized    []byte          `json:"-"`
 }
 
 func (m *IncrementTableResponse) Reset()         { *m = IncrementTableResponse{} }
 func (m *IncrementTableResponse) String() string { return proto1.CompactTextString(m) }
 func (*IncrementTableResponse) ProtoMessage()    {}
 
-func (m *IncrementTableResponse) GetRow() ColumnCollection {
+func (m *IncrementTableResponse) GetRow() ValueCollection {
 	if m != nil {
 		return m.Row
 	}
-	return ColumnCollection{}
+	return ValueCollection{}
 }
 
 // A DeleteTableRowRequest deletes the entire row. key contains the columns
@@ -789,17 +804,16 @@ func (m *ScanTableRequest) GetColumns() []string {
 // A ScanTableResponse is the response.
 type ScanTableResponse struct {
 	TableResponseHeader `protobuf:"bytes,1,opt,name=header,embedded=header" json:"header"`
-	// Empty in case of error. Only the first row need contain the
-	// the names of the columns.
-	Rows             []*ColumnCollection `protobuf:"bytes,2,rep,name=rows" json:"rows,omitempty"`
-	XXX_unrecognized []byte              `json:"-"`
+	// Empty in case of error.
+	Rows             []*ValueCollection `protobuf:"bytes,2,rep,name=rows" json:"rows,omitempty"`
+	XXX_unrecognized []byte             `json:"-"`
 }
 
 func (m *ScanTableResponse) Reset()         { *m = ScanTableResponse{} }
 func (m *ScanTableResponse) String() string { return proto1.CompactTextString(m) }
 func (*ScanTableResponse) ProtoMessage()    {}
 
-func (m *ScanTableResponse) GetRows() []*ColumnCollection {
+func (m *ScanTableResponse) GetRows() []*ValueCollection {
 	if m != nil {
 		return m.Rows
 	}
@@ -2425,6 +2439,74 @@ func (m *ColumnCollection_ColumnNameValue) Unmarshal(data []byte) error {
 
 	return nil
 }
+func (m *ValueCollection) Unmarshal(data []byte) error {
+	l := len(data)
+	index := 0
+	for index < l {
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if index >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := data[index]
+			index++
+			wire |= (uint64(b) & 0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Values", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if index >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := data[index]
+				index++
+				msglen |= (int(b) & 0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			postIndex := index + msglen
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Values = append(m.Values, &MVCCValue{})
+			if err := m.Values[len(m.Values)-1].Unmarshal(data[index:postIndex]); err != nil {
+				return err
+			}
+			index = postIndex
+		default:
+			var sizeOfWire int
+			for {
+				sizeOfWire++
+				wire >>= 7
+				if wire == 0 {
+					break
+				}
+			}
+			index -= sizeOfWire
+			skippy, err := github_com_gogo_protobuf_proto.Skip(data[index:])
+			if err != nil {
+				return err
+			}
+			if (index + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.XXX_unrecognized = append(m.XXX_unrecognized, data[index:index+skippy]...)
+			index += skippy
+		}
+	}
+
+	return nil
+}
 func (m *GetTableRowRequest) Unmarshal(data []byte) error {
 	l := len(data)
 	index := 0
@@ -3760,7 +3842,7 @@ func (m *ScanTableResponse) Unmarshal(data []byte) error {
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			m.Rows = append(m.Rows, &ColumnCollection{})
+			m.Rows = append(m.Rows, &ValueCollection{})
 			if err := m.Rows[len(m.Rows)-1].Unmarshal(data[index:postIndex]); err != nil {
 				return err
 			}
@@ -4760,6 +4842,21 @@ func (m *ColumnCollection_ColumnNameValue) Size() (n int) {
 	return n
 }
 
+func (m *ValueCollection) Size() (n int) {
+	var l int
+	_ = l
+	if len(m.Values) > 0 {
+		for _, e := range m.Values {
+			l = e.Size()
+			n += 1 + l + sovStructured(uint64(l))
+		}
+	}
+	if m.XXX_unrecognized != nil {
+		n += len(m.XXX_unrecognized)
+	}
+	return n
+}
+
 func (m *GetTableRowRequest) Size() (n int) {
 	var l int
 	_ = l
@@ -5645,6 +5742,39 @@ func (m *ColumnCollection_ColumnNameValue) MarshalTo(data []byte) (n int, err er
 		return 0, err
 	}
 	i += n15
+	if m.XXX_unrecognized != nil {
+		i += copy(data[i:], m.XXX_unrecognized)
+	}
+	return i, nil
+}
+
+func (m *ValueCollection) Marshal() (data []byte, err error) {
+	size := m.Size()
+	data = make([]byte, size)
+	n, err := m.MarshalTo(data)
+	if err != nil {
+		return nil, err
+	}
+	return data[:n], nil
+}
+
+func (m *ValueCollection) MarshalTo(data []byte) (n int, err error) {
+	var i int
+	_ = i
+	var l int
+	_ = l
+	if len(m.Values) > 0 {
+		for _, msg := range m.Values {
+			data[i] = 0xa
+			i++
+			i = encodeVarintStructured(data, i, uint64(msg.Size()))
+			n, err := msg.MarshalTo(data[i:])
+			if err != nil {
+				return 0, err
+			}
+			i += n
+		}
+	}
 	if m.XXX_unrecognized != nil {
 		i += copy(data[i:], m.XXX_unrecognized)
 	}

@@ -168,13 +168,16 @@ message TableResponseHeader {
 // A ColumnCollection represents a collection of columns as name:value pairs.
 message ColumnCollection {
   message ColumnNameValue {
-    // Column name. When a ColumnCollection is a row which is a part
-    // of a collection of rows the name need only be specified in columns
-    // belonging to the first row/ColumnCollection.
+    // Column name.
     optional string name = 1;
     optional MVCCValue value = 2 [(gogoproto.nullable) = false];
   }
   repeated ColumnNameValue columns = 1;
+}
+
+// A ValueCollection is a collection of MVCC values.
+message ValueCollection {
+  repeated MVCCValue values = 1;
 }
 
 // A GetTableRowRequest is used to read a table row.
@@ -190,7 +193,7 @@ message GetTableRowRequest {
 message GetTableRowResponse {
   optional TableResponseHeader header = 1 [(gogoproto.nullable) = false, (gogoproto.embed) = true];
   // A deleted column has deleted set.
-  optional ColumnCollection row = 2 [(gogoproto.nullable) = false];
+  optional ValueCollection row = 2 [(gogoproto.nullable) = false];
 }
 
 // A PutTableRowRequest inserts/updates a row in the table. To write
@@ -224,7 +227,7 @@ message ConditionalPutTableRowRequest {
 // forming the index key match up with those in exp_row.
 message ConditionalPutTableRowResponse {
   optional TableResponseHeader header = 1 [(gogoproto.nullable) = false, (gogoproto.embed) = true];
-  optional ColumnCollection row = 2[(gogoproto.nullable) = false];
+  optional ValueCollection row = 2[(gogoproto.nullable) = false];
 }
 
 // An IncrementTableRequest increments the value of the columns in row.
@@ -238,7 +241,7 @@ message IncrementTableRequest {
 // An IncrementTableResponse returns the row with the new column values.
 message IncrementTableResponse {
   optional TableResponseHeader header = 1 [(gogoproto.nullable) = false, (gogoproto.embed) = true];
-  optional ColumnCollection row = 2 [(gogoproto.nullable) = false];
+  optional ValueCollection row = 2 [(gogoproto.nullable) = false];
 }
 
 // A DeleteTableRowRequest deletes the entire row. key contains the columns
@@ -286,9 +289,8 @@ message ScanTableRequest {
 // A ScanTableResponse is the response.
 message ScanTableResponse {
   optional TableResponseHeader header = 1 [(gogoproto.nullable) = false, (gogoproto.embed) = true];
-  // Empty in case of error. Only the first row need contain the
-  // the names of the columns.
-  repeated ColumnCollection rows = 2;
+  // Empty in case of error.
+  repeated ValueCollection rows = 2;
 }
 
 // A BatchTableRequest contains one or more requests to be executed in
